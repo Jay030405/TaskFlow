@@ -15,16 +15,18 @@ type AddMemberRequest struct {
 	Role   string `json:"role"`
 }
 
+type UpdateMemberRoleRequest struct {
+	Role string `json:"role"`
+}
+
 func AddProjectMember(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 
 		userIDValue := r.Context().Value(middleware.UserIDKey)
-
 		ownerID, ok := userIDValue.(int)
 		if !ok {
 			http.Error(w, "User ID not found", http.StatusUnauthorized)
@@ -32,26 +34,22 @@ func AddProjectMember(db *sql.DB) http.HandlerFunc {
 		}
 
 		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-
 		if len(parts) != 4 ||
 			parts[0] != "api" ||
 			parts[1] != "projects" ||
 			parts[3] != "members" {
-
 			http.Error(w, "Invalid member URL", http.StatusBadRequest)
 			return
 		}
 
 		projectID, err := strconv.Atoi(parts[2])
-		if err != nil {
+		if err != nil || projectID <= 0 {
 			http.Error(w, "Invalid project ID", http.StatusBadRequest)
 			return
 		}
 
 		var request AddMemberRequest
-
-		err = json.NewDecoder(r.Body).Decode(&request)
-		if err != nil {
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			http.Error(w, "Invalid request body", http.StatusBadRequest)
 			return
 		}
@@ -61,18 +59,18 @@ func AddProjectMember(db *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		request.Role = strings.TrimSpace(request.Role)
-
+		request.Role = strings.TrimSpace(strings.ToLower(request.Role))
 		if request.Role == "" {
 			request.Role = "member"
 		}
+		if request.Role != "member" && request.Role != "manager" {
+			http.Error(w, "Role must be member or manager", http.StatusBadRequest)
+			return
+		}
 
 		var projectOwnerID int
-
 		err = db.QueryRow(
-			`SELECT owner_id
-			 FROM projects
-			 WHERE id = $1`,
+			`SELECT owner_id FROM projects WHERE id = $1`,
 			projectID,
 		).Scan(&projectOwnerID)
 
@@ -81,7 +79,6 @@ func AddProjectMember(db *sql.DB) http.HandlerFunc {
 				http.Error(w, "Project not found", http.StatusNotFound)
 				return
 			}
-
 			http.Error(w, "Database error", http.StatusInternalServerError)
 			return
 		}
@@ -91,13 +88,14 @@ func AddProjectMember(db *sql.DB) http.HandlerFunc {
 			return
 		}
 
-		var userName string
-		var userEmail string
+		if request.UserID == projectOwnerID {
+			http.Error(w, "The project owner cannot be added as a member", http.StatusConflict)
+			return
+		}
 
+		var userName, userEmail string
 		err = db.QueryRow(
-			`SELECT name, email
-			 FROM users
-			 WHERE id = $1`,
+			`SELECT name, email FROM users WHERE id = $1`,
 			request.UserID,
 		).Scan(&userName, &userEmail)
 
@@ -106,13 +104,11 @@ func AddProjectMember(db *sql.DB) http.HandlerFunc {
 				http.Error(w, "User not found", http.StatusNotFound)
 				return
 			}
-
 			http.Error(w, "Database error", http.StatusInternalServerError)
 			return
 		}
 
 		var memberID int
-
 		err = db.QueryRow(
 			`INSERT INTO project_members (project_id, user_id, role)
 			 VALUES ($1, $2, $3)
@@ -123,14 +119,17 @@ func AddProjectMember(db *sql.DB) http.HandlerFunc {
 		).Scan(&memberID)
 
 		if err != nil {
-			http.Error(w, "User is already a member of this project", http.StatusConflict)
+			http.Error(
+				w,
+				"Could not add member; they may already belong to this project",
+				http.StatusConflict,
+			)
 			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
-
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"message": "Project member added successfully",
 			"member": map[string]interface{}{
 				"id":         memberID,
@@ -146,14 +145,12 @@ func AddProjectMember(db *sql.DB) http.HandlerFunc {
 
 func GetProjectMembers(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-
 		if r.Method != http.MethodGet {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 
 		userIDValue := r.Context().Value(middleware.UserIDKey)
-
 		userID, ok := userIDValue.(int)
 		if !ok {
 			http.Error(w, "User ID not found", http.StatusUnauthorized)
@@ -161,31 +158,26 @@ func GetProjectMembers(db *sql.DB) http.HandlerFunc {
 		}
 
 		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-
 		if len(parts) != 4 ||
 			parts[0] != "api" ||
 			parts[1] != "projects" ||
 			parts[3] != "members" {
-
 			http.Error(w, "Invalid member URL", http.StatusBadRequest)
 			return
 		}
 
 		projectID, err := strconv.Atoi(parts[2])
-		if err != nil {
+		if err != nil || projectID <= 0 {
 			http.Error(w, "Invalid project ID", http.StatusBadRequest)
 			return
 		}
 
 		var accessCount int
-
 		err = db.QueryRow(
 			`SELECT COUNT(*)
 			 FROM projects p
-			 LEFT JOIN project_members pm
-				ON p.id = pm.project_id
-			 WHERE p.id = $1
-			 AND (p.owner_id = $2 OR pm.user_id = $2)`,
+			 LEFT JOIN project_members pm ON p.id = pm.project_id
+			 WHERE p.id = $1 AND (p.owner_id = $2 OR pm.user_id = $2)`,
 			projectID,
 			userID,
 		).Scan(&accessCount)
@@ -203,18 +195,15 @@ func GetProjectMembers(db *sql.DB) http.HandlerFunc {
 		rows, err := db.Query(
 			`SELECT u.id, u.name, u.email, pm.role
 			 FROM project_members pm
-			 JOIN users u
-				ON pm.user_id = u.id
+			 JOIN users u ON pm.user_id = u.id
 			 WHERE pm.project_id = $1
 			 ORDER BY pm.joined_at ASC`,
 			projectID,
 		)
-
 		if err != nil {
 			http.Error(w, "Error fetching project members", http.StatusInternalServerError)
 			return
 		}
-
 		defer rows.Close()
 
 		type MemberResponse struct {
@@ -227,21 +216,16 @@ func GetProjectMembers(db *sql.DB) http.HandlerFunc {
 		members := []MemberResponse{}
 
 		for rows.Next() {
-
 			var member MemberResponse
-
-			err := rows.Scan(
+			if err := rows.Scan(
 				&member.ID,
 				&member.Name,
 				&member.Email,
 				&member.Role,
-			)
-
-			if err != nil {
+			); err != nil {
 				http.Error(w, "Error reading member data", http.StatusInternalServerError)
 				return
 			}
-
 			members = append(members, member)
 		}
 
@@ -251,24 +235,21 @@ func GetProjectMembers(db *sql.DB) http.HandlerFunc {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"project_id": projectID,
 			"members":    members,
 		})
 	}
 }
 
-func DeleteProjectMember(db *sql.DB) http.HandlerFunc {
+func UpdateProjectMemberRole(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-
-		if r.Method != http.MethodDelete {
+		if r.Method != http.MethodPut {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 
 		userIDValue := r.Context().Value(middleware.UserIDKey)
-
 		ownerID, ok := userIDValue.(int)
 		if !ok {
 			http.Error(w, "User ID not found", http.StatusUnauthorized)
@@ -276,34 +257,42 @@ func DeleteProjectMember(db *sql.DB) http.HandlerFunc {
 		}
 
 		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-
 		if len(parts) != 5 ||
 			parts[0] != "api" ||
 			parts[1] != "projects" ||
-			parts[3] != "members" {
-
+			parts[3] != "members" ||
+			parts[4] == "" {
 			http.Error(w, "Invalid member URL", http.StatusBadRequest)
 			return
 		}
 
 		projectID, err := strconv.Atoi(parts[2])
-		if err != nil {
+		if err != nil || projectID <= 0 {
 			http.Error(w, "Invalid project ID", http.StatusBadRequest)
 			return
 		}
 
 		memberUserID, err := strconv.Atoi(parts[4])
-		if err != nil {
+		if err != nil || memberUserID <= 0 {
 			http.Error(w, "Invalid member user ID", http.StatusBadRequest)
 			return
 		}
 
-		var projectOwnerID int
+		var request UpdateMemberRoleRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
 
+		role := strings.ToLower(strings.TrimSpace(request.Role))
+		if role != "member" && role != "manager" {
+			http.Error(w, "Role must be member or manager", http.StatusBadRequest)
+			return
+		}
+
+		var projectOwnerID int
 		err = db.QueryRow(
-			`SELECT owner_id
-			 FROM projects
-			 WHERE id = $1`,
+			`SELECT owner_id FROM projects WHERE id = $1`,
 			projectID,
 		).Scan(&projectOwnerID)
 
@@ -312,7 +301,100 @@ func DeleteProjectMember(db *sql.DB) http.HandlerFunc {
 				http.Error(w, "Project not found", http.StatusNotFound)
 				return
 			}
+			http.Error(w, "Database error", http.StatusInternalServerError)
+			return
+		}
 
+		if projectOwnerID != ownerID {
+			http.Error(w, "Only the project owner can change member roles", http.StatusForbidden)
+			return
+		}
+
+		if memberUserID == projectOwnerID {
+			http.Error(w, "The project owner's role cannot be changed here", http.StatusForbidden)
+			return
+		}
+
+		result, err := db.Exec(
+			`UPDATE project_members
+			 SET role = $1
+			 WHERE project_id = $2 AND user_id = $3`,
+			role,
+			projectID,
+			memberUserID,
+		)
+		if err != nil {
+			http.Error(w, "Error updating member role", http.StatusInternalServerError)
+			return
+		}
+
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			http.Error(w, "Error checking member role update", http.StatusInternalServerError)
+			return
+		}
+		if rowsAffected == 0 {
+			http.Error(w, "Project member not found", http.StatusNotFound)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"message":    "Member role updated successfully",
+			"project_id": projectID,
+			"user_id":    memberUserID,
+			"role":       role,
+		})
+	}
+}
+
+func DeleteProjectMember(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		userIDValue := r.Context().Value(middleware.UserIDKey)
+		ownerID, ok := userIDValue.(int)
+		if !ok {
+			http.Error(w, "User ID not found", http.StatusUnauthorized)
+			return
+		}
+
+		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		if len(parts) != 5 ||
+			parts[0] != "api" ||
+			parts[1] != "projects" ||
+			parts[3] != "members" ||
+			parts[4] == "" {
+			http.Error(w, "Invalid member URL", http.StatusBadRequest)
+			return
+		}
+
+		projectID, err := strconv.Atoi(parts[2])
+		if err != nil || projectID <= 0 {
+			http.Error(w, "Invalid project ID", http.StatusBadRequest)
+			return
+		}
+
+		memberUserID, err := strconv.Atoi(parts[4])
+		if err != nil || memberUserID <= 0 {
+			http.Error(w, "Invalid member user ID", http.StatusBadRequest)
+			return
+		}
+
+		var projectOwnerID int
+		err = db.QueryRow(
+			`SELECT owner_id FROM projects WHERE id = $1`,
+			projectID,
+		).Scan(&projectOwnerID)
+
+		if err != nil {
+			if err == sql.ErrNoRows {
+				http.Error(w, "Project not found", http.StatusNotFound)
+				return
+			}
 			http.Error(w, "Database error", http.StatusInternalServerError)
 			return
 		}
@@ -322,13 +404,17 @@ func DeleteProjectMember(db *sql.DB) http.HandlerFunc {
 			return
 		}
 
+		if memberUserID == projectOwnerID {
+			http.Error(w, "The project owner cannot be removed from the project", http.StatusForbidden)
+			return
+		}
+
 		result, err := db.Exec(
 			`DELETE FROM project_members
 			 WHERE project_id = $1 AND user_id = $2`,
 			projectID,
 			memberUserID,
 		)
-
 		if err != nil {
 			http.Error(w, "Error removing project member", http.StatusInternalServerError)
 			return
@@ -339,15 +425,13 @@ func DeleteProjectMember(db *sql.DB) http.HandlerFunc {
 			http.Error(w, "Error checking member removal", http.StatusInternalServerError)
 			return
 		}
-
 		if rowsAffected == 0 {
 			http.Error(w, "Project member not found", http.StatusNotFound)
 			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"message":    "Project member removed successfully",
 			"project_id": projectID,
 			"user_id":    memberUserID,

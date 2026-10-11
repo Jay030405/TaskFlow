@@ -213,6 +213,9 @@ function App() {
 
             return members.map((member) => ({
               ...member,
+              // The API returns the user's ID as `id`; normalize it so
+              // dashboard deduplication and rendering can use `user_id`.
+              user_id: member.user_id ?? member.id,
               project_id: project.id,
               project_name: project.name,
             }));
@@ -945,6 +948,53 @@ function App() {
       setMessage("Project member removed successfully!");
 
       await loadProjectMembers(selectedProject.id);
+    } catch {
+      setError("Unable to connect to the TaskFlow backend.");
+    }
+  };
+
+
+  const handleUpdateMemberRole = async (memberUserId, role) => {
+    const token = localStorage.getItem("taskflow_token");
+
+    if (!token || !selectedProject) {
+      setError("Please login again.");
+      return;
+    }
+
+    setMessage("");
+    setError("");
+
+    try {
+      const response = await fetch(
+        `/api/projects/${selectedProject.id}/members/${memberUserId}`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ role }),
+        }
+      );
+
+      const responseText = await response.text();
+      let data = {};
+
+      try {
+        data = responseText ? JSON.parse(responseText) : {};
+      } catch {
+        data = { message: responseText };
+      }
+
+      if (!response.ok) {
+        setError(data.message || "Unable to update member role.");
+        return;
+      }
+
+      setMessage("Member role updated successfully!");
+      await loadProjectMembers(selectedProject.id);
+      await loadProjects();
     } catch {
       setError("Unable to connect to the TaskFlow backend.");
     }
@@ -2472,20 +2522,39 @@ function App() {
 
                       <div className="member-actions">
 
-                        <span className="member-role">
-                          {member.role || "member"}
-                        </span>
+                        {Number(selectedProject.owner_id) === Number(user?.id) ? (
+                          <select
+                            aria-label={`Role for ${member.name || member.user_name || "team member"}`}
+                            className="member-role-select"
+                            value={(member.role || "member").toLowerCase()}
+                            onChange={(e) =>
+                              handleUpdateMemberRole(
+                                member.user_id ?? member.id,
+                                e.target.value
+                              )
+                            }
+                          >
+                            <option value="member">Member</option>
+                            <option value="manager">Manager</option>
+                          </select>
+                        ) : (
+                          <span className="member-role">
+                            {member.role || "member"}
+                          </span>
+                        )}
 
-                        <button
-                          className="delete-task-button"
-                          onClick={() =>
-                            handleRemoveMember(
-                              member.id
-                            )
-                          }
-                        >
-                          Remove
-                        </button>
+                        {Number(selectedProject.owner_id) === Number(user?.id) && (
+                          <button
+                            className="delete-task-button"
+                            onClick={() =>
+                              handleRemoveMember(
+                                member.user_id ?? member.id
+                              )
+                            }
+                          >
+                            Remove
+                          </button>
+                        )}
 
                       </div>
 
