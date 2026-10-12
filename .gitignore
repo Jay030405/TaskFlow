@@ -26,3 +26,8 @@ Thumbs.db
 
 # VS Code
 .vscode/
+
+
+# Local PostgreSQL backups
+taskflow-schema-backup.sql
+taskflow-full-backup.sql
