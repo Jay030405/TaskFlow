@@ -16,13 +16,19 @@ func ConnectDB() *sql.DB {
 	password := os.Getenv("DB_PASSWORD")
 	dbname := os.Getenv("DB_NAME")
 
+	sslmode := os.Getenv("DB_SSLMODE")
+	if sslmode == "" {
+		sslmode = "disable"
+	}
+
 	connectionString := fmt.Sprintf(
-		"host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
+		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
 		host,
 		port,
 		user,
 		password,
 		dbname,
+		sslmode,
 	)
 
 	db, err := sql.Open("postgres", connectionString)
@@ -30,8 +36,8 @@ func ConnectDB() *sql.DB {
 		log.Fatal("Error opening database:", err)
 	}
 
-	err = db.Ping()
-	if err != nil {
+	if err := db.Ping(); err != nil {
+		_ = db.Close()
 		log.Fatal("Error connecting to PostgreSQL:", err)
 	}
 

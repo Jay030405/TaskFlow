@@ -1,3 +1,4 @@
+import { apiUrl } from "./api";
 import { useEffect, useState } from "react";
 import "./App.css";
 
@@ -79,9 +80,11 @@ function App() {
       loadUser();
       loadProjects();
     }
+  // Intentionally reload only when authentication state changes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoggedIn]);
 
-  const loadUser = async () => {
+  async function loadUser() {
     const token = localStorage.getItem("taskflow_token");
 
     if (!token) {
@@ -90,7 +93,7 @@ function App() {
     }
 
     try {
-      const response = await fetch("/api/me", {
+      const response = await fetch(apiUrl("/api/me"), {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -108,9 +111,9 @@ function App() {
     } catch {
       setError("Unable to load user information.");
     }
-  };
+  }
 
-  const loadProjects = async () => {
+  async function loadProjects() {
     const token = localStorage.getItem("taskflow_token");
 
     if (!token) {
@@ -121,7 +124,7 @@ function App() {
     setProjectsLoading(true);
 
     try {
-      const response = await fetch("/api/projects", {
+      const response = await fetch(apiUrl("/api/projects"), {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -145,7 +148,7 @@ function App() {
     } finally {
       setProjectsLoading(false);
     }
-  };
+  }
 
   const loadAllTasks = async (projectList) => {
     const token = localStorage.getItem("taskflow_token");
@@ -158,7 +161,7 @@ function App() {
     try {
       const taskResponses = await Promise.all(
         projectList.map((project) =>
-          fetch(`/api/projects/${project.id}/tasks`, {
+          fetch(apiUrl(`/api/projects/${project.id}/tasks`), {
             headers: {
               Authorization: `Bearer ${token}`,
             },
@@ -191,7 +194,7 @@ function App() {
         projectList.map(async (project) => {
           try {
             const response = await fetch(
-              `/api/projects/${project.id}/members`,
+              apiUrl(`/api/projects/${project.id}/members`),
               {
                 headers: {
                   Authorization: `Bearer ${token}`,
@@ -276,7 +279,7 @@ function App() {
 
     try {
       const projectResponse = await fetch(
-        `/api/projects/${projectId}`,
+        apiUrl(`/api/projects/${projectId}`),
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -320,7 +323,7 @@ function App() {
 
     try {
       const response = await fetch(
-        `/api/projects/${projectId}/tasks`,
+        apiUrl(`/api/projects/${projectId}/tasks`),
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -357,7 +360,7 @@ function App() {
 
     try {
       const response = await fetch(
-        `/api/projects/${projectId}/members`,
+        apiUrl(`/api/projects/${projectId}/members`),
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -399,7 +402,7 @@ function App() {
 
     try {
       const response = await fetch(
-        `/api/tasks/${taskId}/comments`,
+        apiUrl(`/api/tasks/${taskId}/comments`),
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -463,7 +466,7 @@ function App() {
 
     try {
       const response = await fetch(
-        `/api/tasks/${taskId}/comments`,
+        apiUrl(`/api/tasks/${taskId}/comments`),
         {
           method: "POST",
           headers: {
@@ -517,7 +520,7 @@ function App() {
 
     try {
       const response = await fetch(
-        `/api/tasks/${taskId}/comments/${commentId}`,
+        apiUrl(`/api/tasks/${taskId}/comments/${commentId}`),
         {
           method: "DELETE",
           headers: {
@@ -591,7 +594,7 @@ function App() {
         ? `/api/projects/${editingProjectId}`
         : "/api/projects";
 
-      const response = await fetch(url, {
+      const response = await fetch(apiUrl(url), {
         method: editingProjectId ? "PUT" : "POST",
         headers: {
           "Content-Type": "application/json",
@@ -647,7 +650,7 @@ function App() {
 
     try {
       const response = await fetch(
-        `/api/projects/${projectId}`,
+        apiUrl(`/api/projects/${projectId}`),
         {
           method: "DELETE",
           headers: {
@@ -709,7 +712,7 @@ function App() {
         ? `/api/tasks/${editingTaskId}`
         : `/api/projects/${selectedProject.id}/tasks`;
 
-      const response = await fetch(url, {
+      const response = await fetch(apiUrl(url), {
         method: editingTaskId ? "PUT" : "POST",
         headers: {
           "Content-Type": "application/json",
@@ -803,7 +806,7 @@ function App() {
 
     try {
       const response = await fetch(
-        `/api/tasks/${taskId}`,
+        apiUrl(`/api/tasks/${taskId}`),
         {
           method: "DELETE",
           headers: {
@@ -873,7 +876,7 @@ function App() {
 
     try {
       const response = await fetch(
-        `/api/projects/${selectedProject.id}/members`,
+        apiUrl(`/api/projects/${selectedProject.id}/members`),
         {
           method: "POST",
           headers: {
@@ -927,7 +930,7 @@ function App() {
 
     try {
       const response = await fetch(
-        `/api/projects/${selectedProject.id}/members/${memberId}`,
+        apiUrl(`/api/projects/${selectedProject.id}/members/${memberId}`),
         {
           method: "DELETE",
           headers: {
@@ -967,7 +970,7 @@ function App() {
 
     try {
       const response = await fetch(
-        `/api/projects/${selectedProject.id}/members/${memberUserId}`,
+        apiUrl(`/api/projects/${selectedProject.id}/members/${memberUserId}`),
         {
           method: "PUT",
           headers: {
@@ -1091,7 +1094,7 @@ function App() {
     setError("");
 
     try {
-      const response = await fetch("/api/login", {
+      const response = await fetch(apiUrl("/api/login"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -1126,7 +1129,7 @@ function App() {
     setError("");
 
     try {
-      const response = await fetch("/api/register", {
+      const response = await fetch(apiUrl("/api/register"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
